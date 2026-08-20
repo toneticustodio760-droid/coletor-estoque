@@ -1,10 +1,9 @@
-<!DOCTYPE html>
+     <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coletor Visual de Estoque (Nuvem Google Sheets)</title>
-    <!-- Correcao do script da biblioteca XLSX -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         :root {
@@ -17,16 +16,21 @@
             --red: #ef4444;
             --blue: #3b82f6;
             --gray: #334155;
+            --amber: #f59e0b;
         }
 
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
         .container { max-width: 1250px; margin: 0 auto; }
 
-        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 15px; flex-wrap: wrap; gap: 10px; }
         h1 { margin: 0; font-size: 20px; color: var(--accent); }
 
+        .header-actions { display: flex; align-items: center; gap: 10px; }
         .status-sync { font-size: 12px; font-weight: bold; padding: 6px 12px; border-radius: 20px; background: #334155; color: #94a3b8; }
         .status-sync.online { background: #14532d; color: #4ade80; }
+
+        .btn-nova-sessao { background: var(--amber); color: #000; font-weight: bold; padding: 6px 12px; border: none; border-radius: 20px; cursor: pointer; font-size: 12px; transition: 0.2s; }
+        .btn-nova-sessao:hover { background: #d97706; color: #fff; }
 
         .kpi-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
         .kpi-card { background: var(--card-bg); border: 1px solid var(--border); padding: 12px; border-radius: 8px; text-align: center; }
@@ -82,7 +86,10 @@
 <div class="container">
     <header>
         <h1>🏗️ Coletor Visual de Estoque</h1>
-        <div id="status-sync" class="status-sync">Conectando à nuvem...</div>
+        <div class="header-actions">
+            <button class="btn-nova-sessao" onclick="iniciarNovaContagem()">➕ Iniciar Nova Contagem</button>
+            <div id="status-sync" class="status-sync">Conectando à nuvem...</div>
+        </div>
     </header>
 
     <div class="dashboard-grid">
@@ -117,7 +124,7 @@
         </div>
 
         <div class="card">
-            <h3 style="margin-top:0; color:#94a3b8; font-size:13px; text-transform:uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Avanço em Tempo Real (Google Sheets)</h3>
+            <h3 style="margin-top:0; color:#94a3b8; font-size:13px; text-transform:uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Avanço em Tempo Real (Contagem Atual)</h3>
             
             <div class="kpi-container" style="grid-template-columns: repeat(2, 1fr); margin-top: 10px;">
                 <div class="kpi-card"><div class="kpi-title">Total Auditado</div><div id="kpi-total" class="kpi-val">0</div></div>
@@ -143,11 +150,11 @@
 </div>
 
 <script>
-    // Sua URL do Google Apps Script configurada diretamente
     const URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbzNKB1Ijv1CHi2GZY-zcCxksjolzlsvrbCsHy-Imuwkp1vsiq16sL6hrrttD2icbhsRDw/exec";
 
     let excelData = [];
     let selectedTempPos = null;
+    let sessaoAtual = parseInt(localStorage.getItem('sessaoAtual') || '1');
 
     window.onload = function() {
         iniciarSelectsEstaticos();
@@ -190,7 +197,7 @@
             .then(res => res.json())
             .then(data => {
                 excelData = Array.isArray(data) ? data : [];
-                st.innerText = "● Sincronizado (Google Nuvem)";
+                st.innerText = `● Contagem #${sessaoAtual} (Google Nuvem)`;
                 st.classList.add('online');
                 renderizarPortaPalete();
                 atualizarDashboard();
@@ -295,7 +302,8 @@
             "Apartamento": selectedTempPos.apt,
             "Endereço": selectedTempPos.enderecoKey,
             "Validador": validador,
-            "Ação": acao
+            "Ação": acao,
+            "Sessao": sessaoAtual
         };
 
         fetch(URL_GOOGLE_SCRIPT, {
@@ -313,7 +321,7 @@
                 excelData[idx]['Ação'] = acao;
             }
 
-            st.innerText = "● Salvo no Google Sheets";
+            st.innerText = `● Salvo no Sheets (Contagem #${sessaoAtual})`;
             st.classList.add('online');
 
             setBotoesAtivos(true);
@@ -325,6 +333,20 @@
             st.innerText = "Erro ao sincronizar";
             setBotoesAtivos(true);
         });
+    }
+
+    function iniciarNovaContagem() {
+        if (confirm("Deseja finalizar a contagem atual e iniciar um NOVO inventário zerado?\n\n(Os dados anteriores continuarão salvos e guardados na planilha!)")) {
+            sessaoAtual++;
+            localStorage.setItem('sessaoAtual', sessaoAtual.toString());
+            excelData = [];
+            renderizarPortaPalete();
+            atualizarDashboard();
+            
+            const st = document.getElementById('status-sync');
+            st.innerText = `● Nova Contagem #${sessaoAtual} Iniciada`;
+            st.classList.add('online');
+        }
     }
 
     function setBotoesAtivos(ativo) {
