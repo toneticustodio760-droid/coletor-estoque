@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Coletor Visual de Estoque (Nuvem Google Sheets)</title>
+    <!-- Correcao do script da biblioteca XLSX -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <style>
+        :root {
+            --bg: #0b1329;
+            --card-bg: #1c2541;
+            --border: #3a506b;
+            --text: #ffffff;
+            --accent: #5bc0be;
+            --green: #22c55e;
+            --red: #ef4444;
+            --blue: #3b82f6;
+            --gray: #334155;
+        }
+
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 15px; }
+        .container { max-width: 1250px; margin: 0 auto; }
+
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 15px; }
+        h1 { margin: 0; font-size: 20px; color: var(--accent); }
+
+        .status-sync { font-size: 12px; font-weight: bold; padding: 6px 12px; border-radius: 20px; background: #334155; color: #94a3b8; }
+        .status-sync.online { background: #14532d; color: #4ade80; }
+
+        .kpi-container { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 20px; }
+        .kpi-card { background: var(--card-bg); border: 1px solid var(--border); padding: 12px; border-radius: 8px; text-align: center; }
+        .kpi-title { font-size: 11px; color: #94a3b8; font-weight: bold; text-transform: uppercase; }
+        .kpi-val { font-size: 22px; font-weight: bold; color: var(--accent); margin-top: 4px; }
+
+        .dashboard-grid { display: grid; grid-template-columns: 2.2fr 1fr; gap: 20px; }
+        @media (max-width: 900px) { .dashboard-grid { grid-template-columns: 1fr; } }
+
+        .card { background: var(--card-bg); border: 1px solid var(--border); padding: 15px; border-radius: 12px; }
+
+        .selector-bar { display: flex; gap: 8px; margin-bottom: 15px; background: #0b1329; padding: 10px; border-radius: 8px; border: 1px solid var(--border); }
+        .select-group { flex: 1; }
+        .select-group label { display: block; font-size: 10px; color: var(--accent); font-weight: bold; margin-bottom: 4px; text-transform: uppercase; }
+        select { width: 100%; padding: 8px; background: #1c2541; color: #fff; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-weight: bold; outline: none; }
+
+        .rack-frame { border: 2px solid #64748b; background: #0b1329; padding: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
+        .floor-level { display: flex; align-items: center; gap: 8px; border-bottom: 1px dashed #334155; padding-bottom: 6px; }
+        .floor-label { width: 65px; font-size: 11px; font-weight: bold; color: #94a3b8; text-align: right; }
+        .apt-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; }
+
+        .apt-box {
+            background: #1e293b; border: 2px solid var(--border); border-radius: 6px; padding: 10px; text-align: center;
+            cursor: pointer; transition: all 0.2s; user-select: none;
+        }
+        .apt-box:hover { border-color: var(--accent); }
+        .apt-box.selected { border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.6); background: #0f172a; }
+
+        .apt-box.sim { background: var(--green); border-color: #16a34a; color: #fff; }
+        .apt-box.nao { background: var(--red); border-color: #dc2626; color: #fff; }
+        .apt-box.vazio { background: var(--blue); border-color: #2563eb; color: #fff; }
+
+        .apt-title { font-size: 14px; font-weight: bold; }
+        .apt-sub { font-size: 10px; margin-top: 2px; opacity: 0.9; font-weight: 600; }
+
+        .action-area { background: #0b1329; border: 1px solid var(--border); padding: 12px; border-radius: 8px; margin-top: 15px; text-align: center; }
+        .action-btns { display: flex; gap: 8px; margin-top: 10px; }
+        .btn { flex: 1; padding: 12px 8px; border: none; border-radius: 6px; font-weight: bold; font-size: 13px; cursor: pointer; color: #fff; transition: 0.2s; }
+        .btn-sim { background: var(--green); }
+        .btn-nao { background: var(--red); }
+        .btn-vazio { background: var(--blue); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .chart-native-container { display: flex; flex-direction: column; gap: 14px; width: 100%; margin-top: 15px; }
+        .progress-group { display: flex; flex-direction: column; gap: 4px; }
+        .progress-label-row { display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; }
+        .progress-bar-bg { background: #0b1329; border: 1px solid var(--border); border-radius: 6px; height: 16px; overflow: hidden; width: 100%; }
+        .progress-fill { height: 100%; transition: width 0.4s ease; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>🏗️ Coletor Visual de Estoque</h1>
+        <div id="status-sync" class="status-sync">Conectando à nuvem...</div>
+    </header>
+
+    <div class="dashboard-grid">
+        <div class="card">
+            <div class="selector-bar">
+                <div class="select-group">
+                    <label>Depósito</label>
+                    <select id="sel-dep" onchange="renderizarPortaPalete()"></select>
+                </div>
+                <div class="select-group">
+                    <label>Rua</label>
+                    <select id="sel-rua" onchange="renderizarPortaPalete()"></select>
+                </div>
+                <div class="select-group">
+                    <label>Prédio</label>
+                    <select id="sel-predio" onchange="renderizarPortaPalete()"></select>
+                </div>
+            </div>
+
+            <div id="rack-container" class="rack-frame"></div>
+
+            <div class="action-area">
+                <div style="font-size: 10px; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Posição Selecionada:</div>
+                <div id="selected-label" style="font-size: 18px; font-weight: bold; color: var(--accent); margin: 4px 0;">Nenhuma</div>
+                
+                <div class="action-btns">
+                    <button id="btn-sim" class="btn btn-sim" onclick="validar('Sim', 'OK')">✅ SIM (Livre)</button>
+                    <button id="btn-nao" class="btn btn-nao" onclick="validar('Não', 'Auditar e Registrar Produto')">❌ NÃO (Ocupado)</button>
+                    <button id="btn-vazio" class="btn btn-vazio" onclick="validar('Palete Vazio', 'Ajustar Saldo de Palete')">🈳 PALETE VAZIO</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3 style="margin-top:0; color:#94a3b8; font-size:13px; text-transform:uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Avanço em Tempo Real (Google Sheets)</h3>
+            
+            <div class="kpi-container" style="grid-template-columns: repeat(2, 1fr); margin-top: 10px;">
+                <div class="kpi-card"><div class="kpi-title">Total Auditado</div><div id="kpi-total" class="kpi-val">0</div></div>
+                <div class="kpi-card"><div class="kpi-title">Confiabilidade</div><div id="kpi-conf" class="kpi-val">0%</div></div>
+            </div>
+
+            <div class="chart-native-container">
+                <div class="progress-group">
+                    <div class="progress-label-row"><span style="color:var(--green)">🟢 Livre (Sim)</span><span id="txt-livre">0 (0%)</span></div>
+                    <div class="progress-bar-bg"><div id="bar-livre" class="progress-fill" style="width: 0%; background: var(--green);"></div></div>
+                </div>
+                <div class="progress-group">
+                    <div class="progress-label-row"><span style="color:var(--red)">🔴 Ocupado (Não)</span><span id="txt-ocupado">0 (0%)</span></div>
+                    <div class="progress-bar-bg"><div id="bar-ocupado" class="progress-fill" style="width: 0%; background: var(--red);"></div></div>
+                </div>
+                <div class="progress-group">
+                    <div class="progress-label-row"><span style="color:var(--blue)">🔵 Palete Vazio</span><span id="txt-vazio">0 (0%)</span></div>
+                    <div class="progress-bar-bg"><div id="bar-vazio" class="progress-fill" style="width: 0%; background: var(--blue);"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Sua URL do Google Apps Script configurada diretamente
+    const URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbzNKB1Ijv1CHi2GZY-zcCxksjolzlsvrbCsHy-Imuwkp1vsiq16sL6hrrttD2icbhsRDw/exec";
+
+    let excelData = [];
+    let selectedTempPos = null;
+
+    window.onload = function() {
+        iniciarSelectsEstaticos();
+        renderizarPortaPalete();
+        carregarDadosDoGoogleSheets();
+    };
+
+    function iniciarSelectsEstaticos() {
+        const selDep = document.getElementById('sel-dep');
+        let depsHTML = '';
+        for (let i = 1; i <= 5; i++) {
+            let num = String(i).padStart(2, '0');
+            depsHTML += `<option value="${num}">Depósito ${num}</option>`;
+        }
+        selDep.innerHTML = depsHTML;
+
+        const selRua = document.getElementById('sel-rua');
+        let ruasHTML = '';
+        for (let i = 1; i <= 50; i++) {
+            let num = String(i).padStart(3, '0');
+            ruasHTML += `<option value="${num}">Rua ${num}</option>`;
+        }
+        selRua.innerHTML = ruasHTML;
+
+        const selPredio = document.getElementById('sel-predio');
+        let prediosHTML = '';
+        for (let i = 1; i <= 100; i++) {
+            let num = String(i).padStart(3, '0');
+            prediosHTML += `<option value="${num}">Prédio ${num}</option>`;
+        }
+        selPredio.innerHTML = prediosHTML;
+    }
+
+    function carregarDadosDoGoogleSheets() {
+        const st = document.getElementById('status-sync');
+        st.innerText = "Sincronizando com Sheets...";
+        st.classList.remove('online');
+
+        fetch(URL_GOOGLE_SCRIPT)
+            .then(res => res.json())
+            .then(data => {
+                excelData = Array.isArray(data) ? data : [];
+                st.innerText = "● Sincronizado (Google Nuvem)";
+                st.classList.add('online');
+                renderizarPortaPalete();
+                atualizarDashboard();
+            })
+            .catch(err => {
+                st.innerText = "● Erro na sincronização";
+                console.error("Erro ao carregar do Sheets:", err);
+            });
+    }
+
+    function renderizarPortaPalete() {
+        const dep = document.getElementById('sel-dep').value;
+        const rua = document.getElementById('sel-rua').value;
+        const predio = document.getElementById('sel-predio').value;
+
+        const container = document.getElementById('rack-container');
+        container.innerHTML = '';
+
+        const andaresPadrao = [8, 7, 6, 5, 4, 3, 2, 1];
+        const aptsPadrao = [1, 2];
+
+        selectedTempPos = null;
+
+        andaresPadrao.forEach(andarNum => {
+            const row = document.createElement('div');
+            row.className = 'floor-level';
+
+            const label = document.createElement('div');
+            label.className = 'floor-label';
+            label.innerText = `Andar ${String(andarNum).padStart(2, '0')}`;
+            row.appendChild(label);
+
+            const pairGrid = document.createElement('div');
+            pairGrid.className = 'apt-pair';
+
+            aptsPadrao.forEach(aptNum => {
+                const aFmt = String(andarNum).padStart(2, '0');
+                const aptFmt = String(aptNum).padStart(2, '0');
+                const enderecoKey = `${dep}-${rua}-${predio}-${aFmt}-${aptFmt}`;
+
+                const registroExistente = excelData.find(item => String(item['Endereço']) === enderecoKey);
+
+                const box = document.createElement('div');
+                const boxId = `box-a${andarNum}-p${aptNum}`;
+                box.id = boxId;
+
+                let statusTxt = 'NÃO REGISTRADO';
+                let stClass = '';
+
+                if (registroExistente) {
+                    const validador = registroExistente['Validador'];
+                    if (validador === 'Sim') stClass = 'sim';
+                    else if (validador === 'Não') stClass = 'nao';
+                    else if (validador === 'Palete Vazio') stClass = 'vazio';
+
+                    statusTxt = validador;
+                }
+
+                box.className = `apt-box ${stClass}`;
+                box.innerHTML = `
+                    <div class="apt-title">Apt ${aptFmt}</div>
+                    <div class="apt-sub">${statusTxt}</div>
+                `;
+
+                box.onclick = () => selecionarApartamento(boxId, {
+                    dep, rua, predio, andar: aFmt, apt: aptFmt, enderecoKey
+                });
+
+                pairGrid.appendChild(box);
+            });
+
+            row.appendChild(pairGrid);
+            container.appendChild(row);
+        });
+
+        const firstBox = document.getElementById('box-a1-p1');
+        if (firstBox) firstBox.click();
+    }
+
+    function selecionarApartamento(boxId, posInfo) {
+        document.querySelectorAll('.apt-box').forEach(b => b.classList.remove('selected'));
+        const el = document.getElementById(boxId);
+        if (el) el.classList.add('selected');
+
+        selectedTempPos = posInfo;
+        document.getElementById('selected-label').innerText = `Prédio ${posInfo.predio} | Andar ${posInfo.andar} | Apt ${posInfo.apt}`;
+    }
+
+    function validar(validador, acao) {
+        if (!selectedTempPos) return;
+
+        setBotoesAtivos(false);
+        const st = document.getElementById('status-sync');
+        st.innerText = "Salvando na nuvem...";
+        st.classList.remove('online');
+
+        const payload = {
+            "Depósito": selectedTempPos.dep,
+            "Ruas": selectedTempPos.rua,
+            "Prédio": selectedTempPos.predio,
+            "Andar": selectedTempPos.andar,
+            "Apartamento": selectedTempPos.apt,
+            "Endereço": selectedTempPos.enderecoKey,
+            "Validador": validador,
+            "Ação": acao
+        };
+
+        fetch(URL_GOOGLE_SCRIPT, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        })
+        .then(() => {
+            const idx = excelData.findIndex(item => String(item['Endereço']) === selectedTempPos.enderecoKey);
+            if (idx === -1) {
+                excelData.push(payload);
+            } else {
+                excelData[idx]['Validador'] = validador;
+                excelData[idx]['Ação'] = acao;
+            }
+
+            st.innerText = "● Salvo no Google Sheets";
+            st.classList.add('online');
+
+            setBotoesAtivos(true);
+            renderizarPortaPalete();
+            atualizarDashboard();
+        })
+        .catch(err => {
+            alert("Erro ao salvar lançamento no Google Sheets!");
+            st.innerText = "Erro ao sincronizar";
+            setBotoesAtivos(true);
+        });
+    }
+
+    function setBotoesAtivos(ativo) {
+        document.getElementById('btn-sim').disabled = !ativo;
+        document.getElementById('btn-nao').disabled = !ativo;
+        document.getElementById('btn-vazio').disabled = !ativo;
+    }
+
+    function atualizarDashboard() {
+        const totalAuditado = excelData.length;
+        const livres = excelData.filter(d => d['Validador'] === 'Sim').length;
+        const ocupados = excelData.filter(d => d['Validador'] === 'Não').length;
+        const vazios = excelData.filter(d => d['Validador'] === 'Palete Vazio').length;
+
+        const pctLivre = totalAuditado > 0 ? ((livres / totalAuditado) * 100).toFixed(1) : 0;
+        const pctOcupado = totalAuditado > 0 ? ((ocupados / totalAuditado) * 100).toFixed(1) : 0;
+        const pctVazio = totalAuditado > 0 ? ((vazios / totalAuditado) * 100).toFixed(1) : 0;
+        const conf = totalAuditado > 0 ? ((livres / totalAuditado) * 100).toFixed(1) : 0;
+
+        document.getElementById('kpi-total').innerText = totalAuditado;
+        document.getElementById('kpi-conf').innerText = `${conf}%`;
+
+        document.getElementById('txt-livre').innerText = `${livres} (${pctLivre}%)`;
+        document.getElementById('bar-livre').style.width = `${pctLivre}%`;
+
+        document.getElementById('txt-ocupado').innerText = `${ocupados} (${pctOcupado}%)`;
+        document.getElementById('bar-ocupado').style.width = `${pctOcupado}%`;
+
+        document.getElementById('txt-vazio').innerText = `${vazios} (${pctVazio}%)`;
+        document.getElementById('bar-vazio').style.width = `${pctVazio}%`;
+    }
+</script>
+
+</body>
+</html>
