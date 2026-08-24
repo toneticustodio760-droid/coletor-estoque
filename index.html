@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Coletor Visual de Estoque (Nuvem Google Sheets)</title>
+    <title>Coletor Visual de Estoque (SAGA / Gestão por Exceção)</title>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <style>
         :root {
@@ -46,11 +46,13 @@
         .select-group { flex: 1; }
         .select-group label { display: block; font-size: 10px; color: var(--accent); font-weight: bold; margin-bottom: 4px; text-transform: uppercase; }
         select { width: 100%; padding: 8px; background: #1c2541; color: #fff; border: 1px solid var(--border); border-radius: 6px; font-size: 14px; font-weight: bold; outline: none; }
+        select:disabled { opacity: 0.4; cursor: not-allowed; }
 
-        .rack-frame { border: 2px solid #64748b; background: #0b1329; padding: 10px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; }
-        .floor-level { display: flex; align-items: center; gap: 8px; border-bottom: 1px dashed #334155; padding-bottom: 6px; }
-        .floor-label { width: 65px; font-size: 11px; font-weight: bold; color: #94a3b8; text-align: right; }
-        .apt-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex: 1; }
+        .rack-frame { border: 2px solid #64748b; background: #0b1329; padding: 12px; border-radius: 8px; display: flex; flex-direction: column; gap: 8px; min-height: 280px; max-height: 520px; overflow-y: auto; }
+        
+        .floor-level { display: flex; align-items: center; gap: 10px; border-bottom: 1px dashed #334155; padding-bottom: 8px; }
+        .floor-label { width: 70px; font-size: 12px; font-weight: bold; color: #94a3b8; text-align: right; }
+        .apt-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; flex: 1; }
 
         .apt-box {
             background: #1e293b; border: 2px solid var(--border); border-radius: 6px; padding: 10px; text-align: center;
@@ -59,12 +61,12 @@
         .apt-box:hover { border-color: var(--accent); }
         .apt-box.selected { border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.6); background: #0f172a; }
 
-        .apt-box.sim { background: var(--green); border-color: #16a34a; color: #fff; }
-        .apt-box.nao { background: var(--red); border-color: #dc2626; color: #fff; }
-        .apt-box.vazio { background: var(--blue); border-color: #2563eb; color: #fff; }
+        .apt-box.sim { background: var(--green) !important; border-color: #16a34a !important; color: #fff; }
+        .apt-box.nao { background: var(--red) !important; border-color: #dc2626 !important; color: #fff; }
+        .apt-box.vazio { background: var(--blue) !important; border-color: #2563eb !important; color: #fff; }
 
-        .apt-title { font-size: 14px; font-weight: bold; }
-        .apt-sub { font-size: 10px; margin-top: 2px; opacity: 0.9; font-weight: 600; }
+        .apt-title { font-size: 13px; font-weight: bold; }
+        .apt-sub { font-size: 10px; margin-top: 3px; font-weight: 600; opacity: 0.9; }
 
         .action-area { background: #0b1329; border: 1px solid var(--border); padding: 12px; border-radius: 8px; margin-top: 15px; text-align: center; }
         .action-btns { display: flex; gap: 8px; margin-top: 10px; }
@@ -85,10 +87,10 @@
 
 <div class="container">
     <header>
-        <h1>🏗️ Coletor Visual de Estoque</h1>
+        <h1>🏗️ Coletor Visual de Estoque (SAGA)</h1>
         <div class="header-actions">
             <button class="btn-nova-sessao" onclick="iniciarNovaContagem()">➕ Iniciar Nova Contagem</button>
-            <div id="status-sync" class="status-sync">Conectando à nuvem...</div>
+            <div id="status-sync" class="status-sync">Carregando base do SAGA...</div>
         </div>
     </header>
 
@@ -96,35 +98,45 @@
         <div class="card">
             <div class="selector-bar">
                 <div class="select-group">
-                    <label>Depósito</label>
-                    <select id="sel-dep" onchange="renderizarPortaPalete()"></select>
+                    <label>1. Depósito (Obrigatório)</label>
+                    <select id="sel-dep" onchange="atualizarRuas()">
+                        <option value="">Selecione o Depósito...</option>
+                    </select>
                 </div>
                 <div class="select-group">
-                    <label>Rua</label>
-                    <select id="sel-rua" onchange="renderizarPortaPalete()"></select>
+                    <label>2. Rua</label>
+                    <select id="sel-rua" onchange="atualizarPredios()" disabled>
+                        <option value="">Selecione...</option>
+                    </select>
                 </div>
                 <div class="select-group">
-                    <label>Prédio</label>
-                    <select id="sel-predio" onchange="renderizarPortaPalete()"></select>
+                    <label>3. Prédio</label>
+                    <select id="sel-predio" onchange="renderizarPortaPalete()" disabled>
+                        <option value="">Selecione...</option>
+                    </select>
                 </div>
             </div>
 
-            <div id="rack-container" class="rack-frame"></div>
+            <div id="rack-container" class="rack-frame">
+                <div style="text-align: center; color: #94a3b8; margin-top: 80px; font-size: 13px;">
+                    ⚠️ Selecione um Depósito, Rua e Prédio para carregar as posições da base.
+                </div>
+            </div>
 
             <div class="action-area">
                 <div style="font-size: 10px; color: #94a3b8; font-weight: bold; text-transform: uppercase;">Posição Selecionada:</div>
-                <div id="selected-label" style="font-size: 18px; font-weight: bold; color: var(--accent); margin: 4px 0;">Nenhuma</div>
+                <div id="selected-label" style="font-size: 16px; font-weight: bold; color: var(--accent); margin: 4px 0;">Nenhuma</div>
                 
                 <div class="action-btns">
-                    <button id="btn-sim" class="btn btn-sim" onclick="validar('Sim', 'OK')">✅ SIM (Livre)</button>
-                    <button id="btn-nao" class="btn btn-nao" onclick="validar('Não', 'Auditar e Registrar Produto')">❌ NÃO (Ocupado)</button>
-                    <button id="btn-vazio" class="btn btn-vazio" onclick="validar('Palete Vazio', 'Ajustar Saldo de Palete')">🈳 PALETE VAZIO</button>
+                    <button id="btn-sim" class="btn btn-sim" onclick="validar('Sim', 'OK')" disabled>✅ SIM (Livre)</button>
+                    <button id="btn-nao" class="btn btn-nao" onclick="validar('Não', 'Auditar e Registrar Produto')" disabled>❌ NÃO (Ocupado)</button>
+                    <button id="btn-vazio" class="btn btn-vazio" onclick="validar('Palete Vazio', 'Ajustar Saldo de Palete')" disabled>🈳 PALETE VAZIO</button>
                 </div>
             </div>
         </div>
 
         <div class="card">
-            <h3 style="margin-top:0; color:#94a3b8; font-size:13px; text-transform:uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Avanço em Tempo Real (Contagem Atual)</h3>
+            <h3 style="margin-top:0; color:#94a3b8; font-size:13px; text-transform:uppercase; border-bottom: 1px solid var(--border); padding-bottom: 8px;">Avanço em Tempo Real</h3>
             
             <div class="kpi-container" style="grid-template-columns: repeat(2, 1fr); margin-top: 10px;">
                 <div class="kpi-card"><div class="kpi-title">Total Auditado</div><div id="kpi-total" class="kpi-val">0</div></div>
@@ -152,132 +164,241 @@
 <script>
     const URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbzNKB1Ijv1CHi2GZY-zcCxksjolzlsvrbCsHy-Imuwkp1vsiq16sL6hrrttD2icbhsRDw/exec";
 
-    let excelData = [];
+    let basePosicoesSaga = [];
+    let baseSagaOcupacao = [];
+    let auditDados = [];
     let selectedTempPos = null;
     let sessaoAtual = parseInt(localStorage.getItem('sessaoAtual') || '1');
 
     window.onload = function() {
-        iniciarSelectsEstaticos();
-        renderizarPortaPalete();
-        carregarDadosDoGoogleSheets();
+        carregarBaseDoGoogleSheets();
     };
 
-    function iniciarSelectsEstaticos() {
-        const selDep = document.getElementById('sel-dep');
-        let depsHTML = '';
-        for (let i = 1; i <= 5; i++) {
-            let num = String(i).padStart(2, '0');
-            depsHTML += `<option value="${num}">Depósito ${num}</option>`;
-        }
-        selDep.innerHTML = depsHTML;
-
-        const selRua = document.getElementById('sel-rua');
-        let ruasHTML = '';
-        for (let i = 1; i <= 50; i++) {
-            let num = String(i).padStart(3, '0');
-            ruasHTML += `<option value="${num}">Rua ${num}</option>`;
-        }
-        selRua.innerHTML = ruasHTML;
-
-        const selPredio = document.getElementById('sel-predio');
-        let prediosHTML = '';
-        for (let i = 1; i <= 100; i++) {
-            let num = String(i).padStart(3, '0');
-            prediosHTML += `<option value="${num}">Prédio ${num}</option>`;
-        }
-        selPredio.innerHTML = prediosHTML;
-    }
-
-    function carregarDadosDoGoogleSheets() {
+    function carregarBaseDoGoogleSheets() {
         const st = document.getElementById('status-sync');
-        st.innerText = "Sincronizando com Sheets...";
+        st.innerText = "Sincronizando com base SAGA...";
         st.classList.remove('online');
 
         fetch(URL_GOOGLE_SCRIPT)
             .then(res => res.json())
             .then(data => {
-                excelData = Array.isArray(data) ? data : [];
-                st.innerText = `● Contagem #${sessaoAtual} (Google Nuvem)`;
+                if (data && data.cadastro) {
+                    basePosicoesSaga = Array.isArray(data.cadastro) ? data.cadastro : [];
+                    baseSagaOcupacao = Array.isArray(data.saga) ? data.saga : [];
+                    auditDados = Array.isArray(data.respostas) ? data.respostas : [];
+                } else {
+                    basePosicoesSaga = Array.isArray(data) ? data : [];
+                }
+
+                st.innerText = `● Contagem #${sessaoAtual} (SAGA Carregado)`;
                 st.classList.add('online');
-                renderizarPortaPalete();
+                
+                popularDepositos();
                 atualizarDashboard();
             })
             .catch(err => {
-                st.innerText = "● Erro na sincronização";
+                st.innerText = "● Erro ao carregar base";
                 console.error("Erro ao carregar do Sheets:", err);
             });
     }
 
+    function popularDepositos() {
+        const selDep = document.getElementById('sel-dep');
+        const depositosUnicos = [...new Set(basePosicoesSaga.map(item => {
+            const chave = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
+            return chave ? String(item[chave]).trim() : '';
+        }))].filter(Boolean).sort();
+
+        let html = '<option value="">Selecione o Depósito...</option>';
+        depositosUnicos.forEach(dep => {
+            html += `<option value="${dep}">Depósito ${dep}</option>`;
+        });
+        selDep.innerHTML = html;
+    }
+
+    function atualizarRuas() {
+        const depSel = document.getElementById('sel-dep').value;
+        const selRua = document.getElementById('sel-rua');
+        const selPredio = document.getElementById('sel-predio');
+
+        selRua.innerHTML = '<option value="">Selecione...</option>';
+        selPredio.innerHTML = '<option value="">Selecione...</option>';
+        selPredio.disabled = true;
+
+        if (!depSel) {
+            selRua.disabled = true;
+            document.getElementById('rack-container').innerHTML = '<div style="text-align: center; color: #94a3b8; margin-top: 80px; font-size: 13px;">⚠️ Selecione um Depósito para continuar.</div>';
+            return;
+        }
+
+        const ruasUnicas = [...new Set(
+            basePosicoesSaga
+                .filter(item => {
+                    const chaveDep = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
+                    return String(item[chaveDep] || '').trim() === depSel;
+                })
+                .map(item => String(item['Rua'] || ''))
+        )].filter(Boolean).sort();
+
+        let html = '<option value="">Selecione a Rua...</option>';
+        ruasUnicas.forEach(rua => {
+            html += `<option value="${rua}">Rua ${rua}</option>`;
+        });
+        selRua.innerHTML = html;
+        selRua.disabled = false;
+    }
+
+    function atualizarPredios() {
+        const depSel = document.getElementById('sel-dep').value;
+        const ruaSel = document.getElementById('sel-rua').value;
+        const selPredio = document.getElementById('sel-predio');
+
+        selPredio.innerHTML = '<option value="">Selecione...</option>';
+
+        if (!ruaSel) {
+            selPredio.disabled = true;
+            return;
+        }
+
+        const prediosUnicos = [...new Set(
+            basePosicoesSaga
+                .filter(item => {
+                    const chaveDep = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
+                    return String(item[chaveDep] || '').trim() === depSel && String(item['Rua'] || '') === ruaSel;
+                })
+                .map(item => String(item['Prédio'] || ''))
+        )].filter(Boolean).sort();
+
+        let html = '<option value="">Selecione o Prédio...</option>';
+        prediosUnicos.forEach(predio => {
+            html += `<option value="${predio}">Prédio ${predio}</option>`;
+        });
+        selPredio.innerHTML = html;
+        selPredio.disabled = false;
+    }
+
     function renderizarPortaPalete() {
         const dep = document.getElementById('sel-dep').value;
-        const modulo = "01"; // Módulo padrão inserido conforme o SAGA
         const rua = document.getElementById('sel-rua').value;
         const predio = document.getElementById('sel-predio').value;
 
         const container = document.getElementById('rack-container');
         container.innerHTML = '';
 
-        const andaresPadrao = [8, 7, 6, 5, 4, 3, 2, 1];
-        const aptsPadrao = [1, 2];
+        if (!dep || !rua || !predio) {
+            container.innerHTML = '<div style="text-align: center; color: #94a3b8; margin-top: 80px; font-size: 13px;">⚠️ Selecione Depósito, Rua e Prédio válidos.</div>';
+            return;
+        }
 
+        const posicoesDoPredio = basePosicoesSaga.filter(item => {
+            const chaveDep = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
+            return String(item[chaveDep] || '').trim() === dep &&
+                   String(item['Rua'] || '') === rua &&
+                   String(item['Prédio'] || '') === predio;
+        });
+
+        if (posicoesDoPredio.length === 0) {
+            container.innerHTML = '<div style="text-align: center; color: #ef4444; margin-top: 80px; font-size: 13px;">❌ Nenhuma posição encontrada no cadastro para esta combinação.</div>';
+            return;
+        }
+
+        const andaresMap = {};
+        posicoesDoPredio.forEach(p => {
+            let andar = String(p['Andar'] || '');
+            if (!andaresMap[andar]) andaresMap[andar] = [];
+            andaresMap[andar].push(p);
+        });
+
+        const andaresOrdenados = Object.keys(andaresMap).sort((a, b) => parseInt(b) - parseInt(a));
         selectedTempPos = null;
 
-        andaresPadrao.forEach(andarNum => {
+        andaresOrdenados.forEach(andarNum => {
             const row = document.createElement('div');
             row.className = 'floor-level';
 
             const label = document.createElement('div');
             label.className = 'floor-label';
-            label.innerText = `Andar ${String(andarNum).padStart(2, '0')}`;
+            label.innerText = `Andar ${andarNum}`;
             row.appendChild(label);
 
             const pairGrid = document.createElement('div');
             pairGrid.className = 'apt-pair';
 
-            aptsPadrao.forEach(aptNum => {
-                const aFmt = String(andarNum).padStart(2, '0');
-                const aptFmt = String(aptNum).padStart(2, '0');
-                
-                // Formato completo SAGA: Depósito.Módulo.Rua.Prédio.Andar.Apartamento
-                const enderecoKey = `${dep}.${modulo}.${rua}.${predio}.${aFmt}.${aptFmt}`;
+            let aptsDoAndar = andaresMap[andarNum].sort((a, b) => String(a['Apartamento'] || '').localeCompare(String(b['Apartamento'] || '')));
 
-                const registroExistente = excelData.find(item => String(item['Endereço']) === enderecoKey);
+            // Força rigorosamente 2 apartamentos por andar (Apt 01 e Apt 02) lado a lado
+            for (let i = 1; i <= 2; i++) {
+                const aptNumStr = `0${i}`;
+                const pos = aptsDoAndar.find(p => String(p['Apartamento'] || '').includes(String(i))) || aptsDoAndar[i-1];
 
                 const box = document.createElement('div');
-                const boxId = `box-a${andarNum}-p${aptNum}`;
+                const boxId = `box-a${andarNum}-p${i}`;
                 box.id = boxId;
 
-                let statusTxt = 'NÃO REGISTRADO';
-                let stClass = '';
+                if (pos) {
+                    const modulo = String(pos['Módulo'] || '01');
+                    const realAptNum = String(pos['Apartamento'] || aptNumStr);
+                    const enderecoKey = String(pos['Endereço'] || `${dep}.${modulo}.${rua}.${predio}.${andarNum}.${realAptNum}`);
 
-                if (registroExistente) {
-                    const validador = registroExistente['Validador'];
-                    if (validador === 'Sim') stClass = 'sim';
-                    else if (validador === 'Não') stClass = 'nao';
-                    else if (validador === 'Palete Vazio') stClass = 'vazio';
+                    const registroAuditado = auditDados.find(item => String(item['Endereço']).trim() === enderecoKey.trim());
+                    
+                    const itemSaga = baseSagaOcupacao.find(s => {
+                        const endSaga = String(s['ENDERECO'] || s['Endereço'] || '').trim();
+                        return endSaga === enderecoKey.trim() || endSaga.includes(`${predio}.${andarNum}.${realAptNum}`);
+                    });
 
-                    statusTxt = validador;
+                    let statusTxt = 'PENDENTE';
+                    let stClass = '';
+                    let bgStyle = '#14532d'; // Padrão verde indicando livre
+
+                    if (registroAuditado) {
+                        const validador = registroAuditado['Validador'];
+                        if (validador === 'Sim') { stClass = 'sim'; bgStyle = 'var(--green)'; }
+                        else if (validador === 'Não') { stClass = 'nao'; bgStyle = 'var(--red)'; }
+                        else if (validador === 'Palete Vazio') { stClass = 'vazio'; bgStyle = 'var(--blue)'; }
+                        statusTxt = validador;
+                    } else if (itemSaga) {
+                        const chaveSit = Object.keys(itemSaga).find(k => k.toUpperCase().includes('SIT') || k.toUpperCase().includes('STATUS'));
+                        const sitSaga = chaveSit ? String(itemSaga[chaveSit]).toUpperCase() : '';
+                        
+                        if (sitSaga.includes('OCUP') || sitSaga.includes('ENDEREÇADO') || sitSaga.includes('COMERCIAL')) {
+                            statusTxt = 'SAGA: Ocupado';
+                            bgStyle = '#7f1d1d'; // Vermelho escuro indicando ocupado pelo SAGA
+                        } else {
+                            statusTxt = 'SAGA: Livre';
+                            bgStyle = '#14532d'; // Verde escuro indicando livre pelo SAGA
+                        }
+                    } else {
+                        statusTxt = 'SAGA: Livre';
+                        bgStyle = '#14532d';
+                    }
+
+                    box.className = `apt-box ${stClass}`;
+                    box.style.background = bgStyle;
+                    box.innerHTML = `
+                        <div class="apt-title" style="font-size: 13px; font-weight: bold;">Apt ${realAptNum}</div>
+                        <div class="apt-sub" style="font-size: 10px; margin-top: 3px; font-weight: 600;">${statusTxt}</div>
+                    `;
+
+                    box.onclick = () => selecionarApartamento(boxId, {
+                        dep, modulo, rua, predio, andar: andarNum, apt: realAptNum, enderecoKey
+                    });
+                } else {
+                    box.className = 'apt-box';
+                    box.style.opacity = '0.3';
+                    box.style.background = '#0f172a';
+                    box.innerHTML = `<div class="apt-title" style="font-size: 13px;">Apt ${aptNumStr}</div><div class="apt-sub" style="font-size: 10px;">Vazio</div>`;
                 }
 
-                box.className = `apt-box ${stClass}`;
-                box.innerHTML = `
-                    <div class="apt-title">Apt ${aptFmt}</div>
-                    <div class="apt-sub">${statusTxt}</div>
-                `;
-
-                box.onclick = () => selecionarApartamento(boxId, {
-                    dep, modulo, rua, predio, andar: aFmt, apt: aptFmt, enderecoKey
-                });
-
                 pairGrid.appendChild(box);
-            });
+            }
 
             row.appendChild(pairGrid);
             container.appendChild(row);
         });
 
-        const firstBox = document.getElementById('box-a1-p1');
-        if (firstBox) firstBox.click();
+        const primeiraBox = container.querySelector('.apt-box:not([style*="opacity: 0.3"])');
+        if (primeiraBox) primeiraBox.click();
     }
 
     function selecionarApartamento(boxId, posInfo) {
@@ -286,7 +407,9 @@
         if (el) el.classList.add('selected');
 
         selectedTempPos = posInfo;
-        document.getElementById('selected-label').innerText = `Módulo ${posInfo.modulo} | Prédio ${posInfo.predio} | Andar ${posInfo.andar} | Apt ${posInfo.apt}`;
+        document.getElementById('selected-label').innerText = `Mód ${posInfo.modulo} | Préd ${posInfo.predio} | And ${posInfo.andar} | Apt ${posInfo.apt}`;
+        
+        setBotoesAtivos(true);
     }
 
     function validar(validador, acao) {
@@ -299,6 +422,7 @@
 
         const payload = {
             "Depósito": selectedTempPos.dep,
+            "Módulo": selectedTempPos.modulo,
             "Ruas": selectedTempPos.rua,
             "Prédio": selectedTempPos.predio,
             "Andar": selectedTempPos.andar,
@@ -316,12 +440,12 @@
             body: JSON.stringify(payload)
         })
         .then(() => {
-            const idx = excelData.findIndex(item => String(item['Endereço']) === selectedTempPos.enderecoKey);
+            const idx = auditDados.findIndex(item => String(item['Endereço']) === selectedTempPos.enderecoKey);
             if (idx === -1) {
-                excelData.push(payload);
+                auditDados.push(payload);
             } else {
-                excelData[idx]['Validador'] = validador;
-                excelData[idx]['Ação'] = acao;
+                auditDados[idx]['Validador'] = validador;
+                auditDados[idx]['Ação'] = acao;
             }
 
             st.innerText = `● Salvo no Sheets (Contagem #${sessaoAtual})`;
@@ -339,10 +463,10 @@
     }
 
     function iniciarNovaContagem() {
-        if (confirm("Deseja finalizar a contagem atual e iniciar um NOVO inventário zerado?\n\n(Os dados anteriores continuarão salvos e guardados na planilha!)")) {
+        if (confirm("Deseja finalizar a contagem atual e iniciar um NOVO inventário zerado?")) {
             sessaoAtual++;
             localStorage.setItem('sessaoAtual', sessaoAtual.toString());
-            excelData = [];
+            auditDados = [];
             renderizarPortaPalete();
             atualizarDashboard();
             
@@ -359,10 +483,10 @@
     }
 
     function atualizarDashboard() {
-        const totalAuditado = excelData.length;
-        const livres = excelData.filter(d => d['Validador'] === 'Sim').length;
-        const ocupados = excelData.filter(d => d['Validador'] === 'Não').length;
-        const vazios = excelData.filter(d => d['Validador'] === 'Palete Vazio').length;
+        const totalAuditado = auditDados.length;
+        const livres = auditDados.filter(d => d['Validador'] === 'Sim').length;
+        const ocupados = auditDados.filter(d => d['Validador'] === 'Não').length;
+        const vazios = auditDados.filter(d => d['Validador'] === 'Palete Vazio').length;
 
         const pctLivre = totalAuditado > 0 ? ((livres / totalAuditado) * 100).toFixed(1) : 0;
         const pctOcupado = totalAuditado > 0 ? ((ocupados / totalAuditado) * 100).toFixed(1) : 0;
