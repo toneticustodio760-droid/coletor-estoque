@@ -1,4 +1,4 @@
-     <!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
@@ -210,6 +210,7 @@
 
     function renderizarPortaPalete() {
         const dep = document.getElementById('sel-dep').value;
+        const modulo = "01"; // Módulo padrão inserido conforme o SAGA
         const rua = document.getElementById('sel-rua').value;
         const predio = document.getElementById('sel-predio').value;
 
@@ -236,7 +237,9 @@
             aptsPadrao.forEach(aptNum => {
                 const aFmt = String(andarNum).padStart(2, '0');
                 const aptFmt = String(aptNum).padStart(2, '0');
-                const enderecoKey = `${dep}-${rua}-${predio}-${aFmt}-${aptFmt}`;
+                
+                // Formato completo SAGA: Depósito.Módulo.Rua.Prédio.Andar.Apartamento
+                const enderecoKey = `${dep}.${modulo}.${rua}.${predio}.${aFmt}.${aptFmt}`;
 
                 const registroExistente = excelData.find(item => String(item['Endereço']) === enderecoKey);
 
@@ -263,7 +266,7 @@
                 `;
 
                 box.onclick = () => selecionarApartamento(boxId, {
-                    dep, rua, predio, andar: aFmt, apt: aptFmt, enderecoKey
+                    dep, modulo, rua, predio, andar: aFmt, apt: aptFmt, enderecoKey
                 });
 
                 pairGrid.appendChild(box);
@@ -283,7 +286,7 @@
         if (el) el.classList.add('selected');
 
         selectedTempPos = posInfo;
-        document.getElementById('selected-label').innerText = `Prédio ${posInfo.predio} | Andar ${posInfo.andar} | Apt ${posInfo.apt}`;
+        document.getElementById('selected-label').innerText = `Módulo ${posInfo.modulo} | Prédio ${posInfo.predio} | Andar ${posInfo.andar} | Apt ${posInfo.apt}`;
     }
 
     function validar(validador, acao) {
