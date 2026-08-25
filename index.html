@@ -349,9 +349,9 @@
                         return endSaga === enderecoKey.trim() || endSaga.includes(`${predio}.${andarNum}.${realAptNum}`);
                     });
 
-                    let statusTxt = '';
+                    let statusTxt = 'SAGA: Livre';
                     let stClass = '';
-                    let bgStyle = '#14532d'; // Verde escuro SAGA Livre
+                    let bgStyle = '#14532d'; // Verde SAGA Livre por padrão
 
                     if (registroAuditado) {
                         const validador = registroAuditado['Validador'];
@@ -364,14 +364,8 @@
                         
                         if (sitSaga.includes('OCUP') || sitSaga.includes('ENDEREÇADO') || sitSaga.includes('COMERCIAL')) {
                             statusTxt = 'SAGA: Ocupado';
-                            bgStyle = '#7f1d1d'; // Vermelho escuro SAGA Ocupado
-                        } else {
-                            statusTxt = 'SAGA: Livre';
-                            bgStyle = '#14532d';
+                            bgStyle = '#7f1d1d'; // Vermelho SAGA Ocupado
                         }
-                    } else {
-                        statusTxt = 'SAGA: Livre';
-                        bgStyle = '#14532d';
                     }
 
                     box.className = `apt-box ${stClass}`;
@@ -430,7 +424,6 @@
         const sitSaga = chaveSit ? String(itemSaga[chaveSit]).toUpperCase() : 'LIVRE';
         const sagaEstaOcupado = sitSaga.includes('OCUP') || sitSaga.includes('ENDEREÇADO') || sitSaga.includes('COMERCIAL');
 
-        // Lógica precisa para definir a Ação Clara
         let acaoFinal = 'OK';
 
         if (sagaEstaOcupado && validadorBtn === 'Livre') {
