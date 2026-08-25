@@ -128,9 +128,9 @@
                 <div id="selected-label" style="font-size: 16px; font-weight: bold; color: var(--accent); margin: 4px 0;">Nenhuma</div>
                 
                 <div class="action-btns">
-                    <button id="btn-sim" class="btn btn-sim" onclick="validar('Sim', 'OK')" disabled>✅ SIM (Livre)</button>
-                    <button id="btn-nao" class="btn btn-nao" onclick="validar('Não', 'Auditar e Registrar Produto')" disabled>❌ NÃO (Ocupado)</button>
-                    <button id="btn-vazio" class="btn btn-vazio" onclick="validar('Palete Vazio', 'Ajustar Saldo de Palete')" disabled>🈳 PALETE VAZIO</button>
+                    <button id="btn-sim" class="btn btn-sim" onclick="validar('Livre')" disabled>🟢 Livre</button>
+                    <button id="btn-nao" class="btn btn-nao" onclick="validar('Ocupado')" disabled>🔴 Ocupado</button>
+                    <button id="btn-vazio" class="btn btn-vazio" onclick="validar('Palete Vazio')" disabled>🔵 Palete Vazio</button>
                 </div>
             </div>
         </div>
@@ -145,11 +145,11 @@
 
             <div class="chart-native-container">
                 <div class="progress-group">
-                    <div class="progress-label-row"><span style="color:var(--green)">🟢 Livre (Sim)</span><span id="txt-livre">0 (0%)</span></div>
+                    <div class="progress-label-row"><span style="color:var(--green)">🟢 Livre</span><span id="txt-livre">0 (0%)</span></div>
                     <div class="progress-bar-bg"><div id="bar-livre" class="progress-fill" style="width: 0%; background: var(--green);"></div></div>
                 </div>
                 <div class="progress-group">
-                    <div class="progress-label-row"><span style="color:var(--red)">🔴 Ocupado (Não)</span><span id="txt-ocupado">0 (0%)</span></div>
+                    <div class="progress-label-row"><span style="color:var(--red)">🔴 Ocupado</span><span id="txt-ocupado">0 (0%)</span></div>
                     <div class="progress-bar-bg"><div id="bar-ocupado" class="progress-fill" style="width: 0%; background: var(--red);"></div></div>
                 </div>
                 <div class="progress-group">
@@ -326,7 +326,6 @@
 
             let aptsDoAndar = andaresMap[andarNum].sort((a, b) => String(a['Apartamento'] || '').localeCompare(String(b['Apartamento'] || '')));
 
-            // Força rigorosamente 2 apartamentos por andar (Apt 01 e Apt 02) lado a lado
             for (let i = 1; i <= 2; i++) {
                 const aptNumStr = `0${i}`;
                 const pos = aptsDoAndar.find(p => String(p['Apartamento'] || '').includes(String(i))) || aptsDoAndar[i-1];
@@ -340,33 +339,35 @@
                     const realAptNum = String(pos['Apartamento'] || aptNumStr);
                     const enderecoKey = String(pos['Endereço'] || `${dep}.${modulo}.${rua}.${predio}.${andarNum}.${realAptNum}`);
 
-                    const registroAuditado = auditDados.find(item => String(item['Endereço']).trim() === enderecoKey.trim());
+                    const registroAuditado = auditDados.find(item => 
+                        String(item['Endereço']).trim() === enderecoKey.trim() &&
+                        String(item['Sessao'] || '1') === String(sessaoAtual)
+                    );
                     
                     const itemSaga = baseSagaOcupacao.find(s => {
                         const endSaga = String(s['ENDERECO'] || s['Endereço'] || '').trim();
                         return endSaga === enderecoKey.trim() || endSaga.includes(`${predio}.${andarNum}.${realAptNum}`);
                     });
 
-                    let statusTxt = 'PENDENTE';
+                    let statusTxt = '';
                     let stClass = '';
-                    let bgStyle = '#14532d'; // Padrão verde indicando livre
+                    let bgStyle = '#14532d'; // Verde escuro SAGA Livre
 
                     if (registroAuditado) {
                         const validador = registroAuditado['Validador'];
-                        if (validador === 'Sim') { stClass = 'sim'; bgStyle = 'var(--green)'; }
-                        else if (validador === 'Não') { stClass = 'nao'; bgStyle = 'var(--red)'; }
-                        else if (validador === 'Palete Vazio') { stClass = 'vazio'; bgStyle = 'var(--blue)'; }
-                        statusTxt = validador;
+                        if (validador === 'Livre') { stClass = 'sim'; bgStyle = 'var(--green)'; statusTxt = 'Livre'; }
+                        else if (validador === 'Ocupado') { stClass = 'nao'; bgStyle = 'var(--red)'; statusTxt = 'Ocupado'; }
+                        else if (validador === 'Palete Vazio') { stClass = 'vazio'; bgStyle = 'var(--blue)'; statusTxt = 'Palete Vazio'; }
                     } else if (itemSaga) {
                         const chaveSit = Object.keys(itemSaga).find(k => k.toUpperCase().includes('SIT') || k.toUpperCase().includes('STATUS'));
                         const sitSaga = chaveSit ? String(itemSaga[chaveSit]).toUpperCase() : '';
                         
                         if (sitSaga.includes('OCUP') || sitSaga.includes('ENDEREÇADO') || sitSaga.includes('COMERCIAL')) {
                             statusTxt = 'SAGA: Ocupado';
-                            bgStyle = '#7f1d1d'; // Vermelho escuro indicando ocupado pelo SAGA
+                            bgStyle = '#7f1d1d'; // Vermelho escuro SAGA Ocupado
                         } else {
                             statusTxt = 'SAGA: Livre';
-                            bgStyle = '#14532d'; // Verde escuro indicando livre pelo SAGA
+                            bgStyle = '#14532d';
                         }
                     } else {
                         statusTxt = 'SAGA: Livre';
@@ -412,8 +413,33 @@
         setBotoesAtivos(true);
     }
 
-    function validar(validador, acao) {
+    function validar(validadorBtn) {
         if (!selectedTempPos) return;
+
+        const enderecoKey = selectedTempPos.enderecoKey;
+        const predio = selectedTempPos.predio;
+        const andar = selectedTempPos.andar;
+        const apt = selectedTempPos.apt;
+
+        const itemSaga = baseSagaOcupacao.find(s => {
+            const endSaga = String(s['ENDERECO'] || s['Endereço'] || '').trim();
+            return endSaga === enderecoKey.trim() || endSaga.includes(`${predio}.${andar}.${apt}`);
+        });
+
+        const chaveSit = itemSaga ? Object.keys(itemSaga).find(k => k.toUpperCase().includes('SIT') || k.toUpperCase().includes('STATUS')) : null;
+        const sitSaga = chaveSit ? String(itemSaga[chaveSit]).toUpperCase() : 'LIVRE';
+        const sagaEstaOcupado = sitSaga.includes('OCUP') || sitSaga.includes('ENDEREÇADO') || sitSaga.includes('COMERCIAL');
+
+        // Lógica precisa para definir a Ação Clara
+        let acaoFinal = 'OK';
+
+        if (sagaEstaOcupado && validadorBtn === 'Livre') {
+            acaoFinal = 'Remover Saldo / Liberar Endereço';
+        } else if (!sagaEstaOcupado && validadorBtn === 'Ocupado') {
+            acaoFinal = 'Auditar e Registrar Produto';
+        } else if (validadorBtn === 'Palete Vazio') {
+            acaoFinal = 'Ajustar Saldo de Palete';
+        }
 
         setBotoesAtivos(false);
         const st = document.getElementById('status-sync');
@@ -427,9 +453,9 @@
             "Prédio": selectedTempPos.predio,
             "Andar": selectedTempPos.andar,
             "Apartamento": selectedTempPos.apt,
-            "Endereço": selectedTempPos.enderecoKey,
-            "Validador": validador,
-            "Ação": acao,
+            "Endereço": enderecoKey,
+            "Validador": validadorBtn,
+            "Ação": acaoFinal,
             "Sessao": sessaoAtual
         };
 
@@ -440,12 +466,12 @@
             body: JSON.stringify(payload)
         })
         .then(() => {
-            const idx = auditDados.findIndex(item => String(item['Endereço']) === selectedTempPos.enderecoKey);
+            const idx = auditDados.findIndex(item => String(item['Endereço']) === enderecoKey);
             if (idx === -1) {
                 auditDados.push(payload);
             } else {
-                auditDados[idx]['Validador'] = validador;
-                auditDados[idx]['Ação'] = acao;
+                auditDados[idx]['Validador'] = validadorBtn;
+                auditDados[idx]['Ação'] = acaoFinal;
             }
 
             st.innerText = `● Salvo no Sheets (Contagem #${sessaoAtual})`;
@@ -484,8 +510,8 @@
 
     function atualizarDashboard() {
         const totalAuditado = auditDados.length;
-        const livres = auditDados.filter(d => d['Validador'] === 'Sim').length;
-        const ocupados = auditDados.filter(d => d['Validador'] === 'Não').length;
+        const livres = auditDados.filter(d => d['Validador'] === 'Livre').length;
+        const ocupados = auditDados.filter(d => d['Validador'] === 'Ocupado').length;
         const vazios = auditDados.filter(d => d['Validador'] === 'Palete Vazio').length;
 
         const pctLivre = totalAuditado > 0 ? ((livres / totalAuditado) * 100).toFixed(1) : 0;
