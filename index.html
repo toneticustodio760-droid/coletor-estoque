@@ -61,10 +61,6 @@
         .apt-box:hover { border-color: var(--accent); }
         .apt-box.selected { border-color: #38bdf8; box-shadow: 0 0 10px rgba(56, 189, 248, 0.6); background: #0f172a; }
 
-        .apt-box.sim { background: var(--green) !important; border-color: #16a34a !important; color: #fff; }
-        .apt-box.nao { background: var(--red) !important; border-color: #dc2626 !important; color: #fff; }
-        .apt-box.vazio { background: var(--blue) !important; border-color: #2563eb !important; color: #fff; }
-
         .apt-title { font-size: 13px; font-weight: bold; }
         .apt-sub { font-size: 10px; margin-top: 3px; font-weight: 600; opacity: 0.9; }
 
@@ -161,53 +157,93 @@
     </div>
 </div>
 
+<!-- 1. Carrega os endereços brutos locais -->
+<script src="enderecos.js"></script>
+
+<!-- 2. Lógica principal integrada -->
 <script>
     const URL_GOOGLE_SCRIPT = "https://script.google.com/macros/s/AKfycbzNKB1Ijv1CHi2GZY-zcCxksjolzlsvrbCsHy-Imuwkp1vsiq16sL6hrrttD2icbhsRDw/exec";
 
-    let basePosicoesSaga = [];
+    let basePosicoesSaga = [];      
+    let enderecosSagaSet = new Set(); 
     let baseSagaOcupacao = [];
     let auditDados = [];
     let selectedTempPos = null;
     let sessaoAtual = parseInt(localStorage.getItem('sessaoAtual') || '1');
 
-    window.onload = function() {
-        carregarBaseDoGoogleSheets();
-    };
+    window.addEventListener('DOMContentLoaded', () => {
+        carregarBaseCompleta();
+    });
 
-    function carregarBaseDoGoogleSheets() {
-        const st = document.getElementById('status-sync');
-        st.innerText = "Sincronizando com base SAGA...";
+    async function carregarBaseCompleta() {
+    const st = document.getElementById('status-sync');
+    if (st) {
+        st.innerText = "Carregando endereços locais...";
         st.classList.remove('online');
-
-        fetch(URL_GOOGLE_SCRIPT)
-            .then(res => res.json())
-            .then(data => {
-                if (data && data.cadastro) {
-                    basePosicoesSaga = Array.isArray(data.cadastro) ? data.cadastro : [];
-                    baseSagaOcupacao = Array.isArray(data.saga) ? data.saga : [];
-                    auditDados = Array.isArray(data.respostas) ? data.respostas : [];
-                } else {
-                    basePosicoesSaga = Array.isArray(data) ? data : [];
-                }
-
-                st.innerText = `● Contagem #${sessaoAtual} (SAGA Carregado)`;
-                st.classList.add('online');
-                
-                popularDepositos();
-                atualizarDashboard();
-            })
-            .catch(err => {
-                st.innerText = "● Erro ao carregar base";
-                console.error("Erro ao carregar do Sheets:", err);
-            });
     }
+
+    try {
+        // 1. Carrega os endereços do arquivo local (enderecos.js)
+        if (typeof textoEnderecosBrutos !== 'undefined') {
+            basePosicoesSaga = textoEnderecosBrutos.split('\n')
+                .map(linha => linha.trim())
+                .filter(linha => linha.length > 0)
+                .map(end => ({ ENDERECO: end }));
+        } else {
+            console.error("Variável 'textoEnderecosBrutos' não encontrada.");
+            if (st) st.innerText = "● Erro: enderecos.js ausente";
+            return;
+        }
+
+        // 2. Busca os dados do Google Sheets (SAGA e Respostas)
+        const respostaSheets = await fetch(URL_GOOGLE_SCRIPT);
+        const data = await respostaSheets.json();
+        
+        baseSagaOcupacao = Array.isArray(data.saga) ? data.saga : (Array.isArray(data) ? data : []);
+        auditDados = Array.isArray(data.respostas) ? data.respostas : [];
+
+        enderecosSagaSet.clear();
+        
+        baseSagaOcupacao.forEach(item => {
+            // Procura dinamicamente qualquer chave que pareça endereço (independente de acento ou maiúsculas)
+            const chaveEnd = Object.keys(item).find(k => {
+                const upper = k.toUpperCase();
+                return upper.includes('ENDERE') || upper.includes('POSICAO') || upper.includes('POSIÇÃO');
+            });
+
+            if (chaveEnd && item[chaveEnd]) {
+                const valorEnd = String(item[chaveEnd]).trim().toUpperCase();
+                enderecosSagaSet.add(valorEnd);
+            }
+        });
+
+        console.log("Total de endereços carregados no SAGA Set:", enderecosSagaSet.size);
+
+        if (st) {
+            st.innerText = `● Contagem #${sessaoAtual} (Pronto)`;
+            st.classList.add('online');
+        }
+        
+        popularDepositos();
+        atualizarDashboard();
+
+    } catch (err) {
+        if (st) {
+            st.innerText = "● Erro ao carregar SAGA (Verifique CORS/Rede)";
+        }
+        console.error("Erro no carregamento:", err);
+    }
+}
 
     function popularDepositos() {
         const selDep = document.getElementById('sel-dep');
-        const depositosUnicos = [...new Set(basePosicoesSaga.map(item => {
-            const chave = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
-            return chave ? String(item[chave]).trim() : '';
-        }))].filter(Boolean).sort();
+        const depositosUnicos = [...new Set(
+            basePosicoesSaga.map(item => {
+                const end = String(item['ENDERECO'] || '');
+                const partes = end.split('.');
+                return partes.length > 0 ? partes[0] : null;
+            })
+        )].filter(Boolean).sort();
 
         let html = '<option value="">Selecione o Depósito...</option>';
         depositosUnicos.forEach(dep => {
@@ -227,17 +263,18 @@
 
         if (!depSel) {
             selRua.disabled = true;
-            document.getElementById('rack-container').innerHTML = '<div style="text-align: center; color: #94a3b8; margin-top: 80px; font-size: 13px;">⚠️ Selecione um Depósito para continuar.</div>';
             return;
         }
 
         const ruasUnicas = [...new Set(
-            basePosicoesSaga
-                .filter(item => {
-                    const chaveDep = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
-                    return String(item[chaveDep] || '').trim() === depSel;
-                })
-                .map(item => String(item['Rua'] || ''))
+            basePosicoesSaga.map(item => {
+                const end = String(item['ENDERECO'] || '');
+                const partes = end.split('.');
+                if (partes.length >= 3 && partes[0] === depSel) {
+                    return partes[2];
+                }
+                return null;
+            })
         )].filter(Boolean).sort();
 
         let html = '<option value="">Selecione a Rua...</option>';
@@ -261,12 +298,14 @@
         }
 
         const prediosUnicos = [...new Set(
-            basePosicoesSaga
-                .filter(item => {
-                    const chaveDep = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
-                    return String(item[chaveDep] || '').trim() === depSel && String(item['Rua'] || '') === ruaSel;
-                })
-                .map(item => String(item['Prédio'] || ''))
+            basePosicoesSaga.map(item => {
+                const end = String(item['ENDERECO'] || '');
+                const partes = end.split('.');
+                if (partes.length >= 4 && partes[0] === depSel && partes[2] === ruaSel) {
+                    return partes[3];
+                }
+                return null;
+            })
         )].filter(Boolean).sort();
 
         let html = '<option value="">Selecione o Prédio...</option>';
@@ -291,20 +330,24 @@
         }
 
         const posicoesDoPredio = basePosicoesSaga.filter(item => {
-            const chaveDep = Object.keys(item).find(k => k.toLowerCase().includes('dep'));
-            return String(item[chaveDep] || '').trim() === dep &&
-                   String(item['Rua'] || '') === rua &&
-                   String(item['Prédio'] || '') === predio;
+            const end = String(item['ENDERECO'] || '');
+            const partes = end.split('.');
+            if (partes.length >= 4) {
+                return partes[0] === dep && partes[2] === rua && partes[3] === predio;
+            }
+            return false;
         });
 
         if (posicoesDoPredio.length === 0) {
-            container.innerHTML = '<div style="text-align: center; color: #ef4444; margin-top: 80px; font-size: 13px;">❌ Nenhuma posição encontrada no cadastro para esta combinação.</div>';
+            container.innerHTML = '<div style="text-align: center; color: #ef4444; margin-top: 80px; font-size: 13px;">❌ Nenhuma posição encontrada no cadastro.</div>';
             return;
         }
 
         const andaresMap = {};
         posicoesDoPredio.forEach(p => {
-            let andar = String(p['Andar'] || '');
+            const end = String(p['ENDERECO'] || '');
+            const partes = end.split('.');
+            const andar = partes[4] || '1';
             if (!andaresMap[andar]) andaresMap[andar] = [];
             andaresMap[andar].push(p);
         });
@@ -324,65 +367,73 @@
             const pairGrid = document.createElement('div');
             pairGrid.className = 'apt-pair';
 
-            let aptsDoAndar = andaresMap[andarNum].sort((a, b) => String(a['Apartamento'] || '').localeCompare(String(b['Apartamento'] || '')));
+            let aptsDoAndar = andaresMap[andarNum].sort((a, b) => {
+                const endA = String(a['ENDERECO'] || '');
+                const endB = String(b['ENDERECO'] || '');
+                return endA.localeCompare(endB);
+            });
 
             for (let i = 1; i <= 2; i++) {
-                const aptNumStr = `0${i}`;
-                const pos = aptsDoAndar.find(p => String(p['Apartamento'] || '').includes(String(i))) || aptsDoAndar[i-1];
-
+                const pos = aptsDoAndar[i - 1];
                 const box = document.createElement('div');
                 const boxId = `box-a${andarNum}-p${i}`;
                 box.id = boxId;
 
                 if (pos) {
-                    const modulo = String(pos['Módulo'] || '01');
-                    const realAptNum = String(pos['Apartamento'] || aptNumStr);
-                    const enderecoKey = String(pos['Endereço'] || `${dep}.${modulo}.${rua}.${predio}.${andarNum}.${realAptNum}`);
+                    const enderecoKey = String(pos['ENDERECO'] || '').trim();
+                    const partes = enderecoKey.split('.');
+                    const modulo = partes[1] || '1';
+                    const realAptNum = partes[5] || `0${i}`;
 
                     const registroAuditado = auditDados.find(item => 
-                        String(item['Endereço']).trim() === enderecoKey.trim() &&
+                        String(item['Endereço']).trim() === enderecoKey &&
                         String(item['Sessao'] || '1') === String(sessaoAtual)
                     );
                     
-                    const itemSaga = baseSagaOcupacao.find(s => {
-                        const endSaga = String(s['ENDERECO'] || s['Endereço'] || '').trim();
-                        return endSaga === enderecoKey.trim() || endSaga.includes(`${predio}.${andarNum}.${realAptNum}`);
-                    });
+                    // CORREÇÃO: Compara limpando caracteres especiais e comparando os blocos numéricos
+const limparStr = (s) => String(s || '').replace(/\D/g, '');
+const keyLimpa = limparStr(enderecoKey);
+
+let estaNoSaga = false;
+for (let endSaga of enderecosSagaSet) {
+    if (limparStr(endSaga).includes(keyLimpa) || keyLimpa.includes(limparStr(endSaga))) {
+        estaNoSaga = true;
+        break;
+    }
+}
 
                     let statusTxt = 'SAGA: Livre';
                     let stClass = '';
-                    let bgStyle = '#14532d'; // Verde SAGA Livre por padrão
+                    let bgStyle = '#14532d';
 
                     if (registroAuditado) {
                         const validador = registroAuditado['Validador'];
                         if (validador === 'Livre') { stClass = 'sim'; bgStyle = 'var(--green)'; statusTxt = 'Livre'; }
                         else if (validador === 'Ocupado') { stClass = 'nao'; bgStyle = 'var(--red)'; statusTxt = 'Ocupado'; }
                         else if (validador === 'Palete Vazio') { stClass = 'vazio'; bgStyle = 'var(--blue)'; statusTxt = 'Palete Vazio'; }
-                    } else if (itemSaga) {
-                        const chaveSit = Object.keys(itemSaga).find(k => k.toUpperCase().includes('SIT') || k.toUpperCase().includes('STATUS'));
-                        const sitSaga = chaveSit ? String(itemSaga[chaveSit]).toUpperCase() : '';
-                        
-                        if (sitSaga.includes('OCUP') || sitSaga.includes('ENDEREÇADO') || sitSaga.includes('COMERCIAL')) {
-                            statusTxt = 'SAGA: Ocupado';
-                            bgStyle = '#7f1d1d'; // Vermelho SAGA Ocupado
-                        }
+                    } else if (estaNoSaga) {
+                        statusTxt = 'SAGA: Ocupado';
+                        bgStyle = '#7f1d1d';
+                    } else {
+                        statusTxt = 'SAGA: Livre';
+                        bgStyle = '#14532d';
                     }
 
                     box.className = `apt-box ${stClass}`;
                     box.style.background = bgStyle;
                     box.innerHTML = `
-                        <div class="apt-title" style="font-size: 13px; font-weight: bold;">Apt ${realAptNum}</div>
-                        <div class="apt-sub" style="font-size: 10px; margin-top: 3px; font-weight: 600;">${statusTxt}</div>
+                        <div class="apt-title">Apt ${realAptNum}</div>
+                        <div class="apt-sub">${statusTxt}</div>
                     `;
 
                     box.onclick = () => selecionarApartamento(boxId, {
-                        dep, modulo, rua, predio, andar: andarNum, apt: realAptNum, enderecoKey
+                        dep: partes[0], modulo, rua, predio, andar: andarNum, apt: realAptNum, enderecoKey
                     });
                 } else {
                     box.className = 'apt-box';
                     box.style.opacity = '0.3';
                     box.style.background = '#0f172a';
-                    box.innerHTML = `<div class="apt-title" style="font-size: 13px;">Apt ${aptNumStr}</div><div class="apt-sub" style="font-size: 10px;">Vazio</div>`;
+                    box.innerHTML = `<div class="apt-title">Apt 0${i}</div><div class="apt-sub">Vazio</div>`;
                 }
 
                 pairGrid.appendChild(box);
@@ -411,21 +462,9 @@
         if (!selectedTempPos) return;
 
         const enderecoKey = selectedTempPos.enderecoKey;
-        const predio = selectedTempPos.predio;
-        const andar = selectedTempPos.andar;
-        const apt = selectedTempPos.apt;
-
-        const itemSaga = baseSagaOcupacao.find(s => {
-            const endSaga = String(s['ENDERECO'] || s['Endereço'] || '').trim();
-            return endSaga === enderecoKey.trim() || endSaga.includes(`${predio}.${andar}.${apt}`);
-        });
-
-        const chaveSit = itemSaga ? Object.keys(itemSaga).find(k => k.toUpperCase().includes('SIT') || k.toUpperCase().includes('STATUS')) : null;
-        const sitSaga = chaveSit ? String(itemSaga[chaveSit]).toUpperCase() : 'LIVRE';
-        const sagaEstaOcupado = sitSaga.includes('OCUP') || sitSaga.includes('ENDEREÇADO') || sitSaga.includes('COMERCIAL');
+        const sagaEstaOcupado = enderecosSagaSet.has(enderecoKey.toUpperCase());
 
         let acaoFinal = 'OK';
-
         if (sagaEstaOcupado && validadorBtn === 'Livre') {
             acaoFinal = 'Remover Saldo / Liberar Endereço';
         } else if (!sagaEstaOcupado && validadorBtn === 'Ocupado') {
@@ -459,7 +498,7 @@
             body: JSON.stringify(payload)
         })
         .then(() => {
-            const idx = auditDados.findIndex(item => String(item['Endereço']) === enderecoKey);
+            const idx = auditDados.findIndex(item => String(item['Endereço']).trim() === enderecoKey);
             if (idx === -1) {
                 auditDados.push(payload);
             } else {
@@ -516,7 +555,6 @@
         document.getElementById('kpi-conf').innerText = `${conf}%`;
 
         document.getElementById('txt-livre').innerText = `${livres} (${pctLivre}%)`;
-        document.getElementById('bar-livre').style.width = `${pctLivre}%`;
 
         document.getElementById('txt-ocupado').innerText = `${ocupados} (${pctOcupado}%)`;
         document.getElementById('bar-ocupado').style.width = `${pctOcupado}%`;
@@ -525,6 +563,5 @@
         document.getElementById('bar-vazio').style.width = `${pctVazio}%`;
     }
 </script>
-
 </body>
 </html>
